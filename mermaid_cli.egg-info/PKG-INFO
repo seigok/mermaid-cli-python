@@ -2,9 +2,9 @@ Metadata-Version: 2.1
 Name: mermaid-cli
 Version: 0.1.0
 Summary: Command-line interface and Python library for mermaid diagrams
-Home-page: https://github.com/yourusername/mermaid-cli-python
+Home-page: https://github.com/seigok/mermaid-cli-python
 Author: Mermaid CLI Python Team
-Author-email: example@example.com
+Author-email: seigo.kawamura@gmail.com
 Keywords: mermaid,diagram,chart,markdown,documentation,cli
 Classifier: Development Status :: 4 - Beta
 Classifier: Intended Audience :: Developers
@@ -30,6 +30,9 @@ Requires-Dist: colorama>=0.4.4
 # Mermaid CLI (Python)
 
 A command-line interface and Python library for [mermaid](https://mermaidjs.github.io/), which allows you to generate diagrams and flowcharts from text.
+
+This code has been ported to Python from the following library:
+https://github.com/mermaid-js/mermaid-cli
 
 ## Features
 

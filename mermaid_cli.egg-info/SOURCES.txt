@@ -4,13 +4,8 @@ README.md
 requirements.txt
 setup.py
 mermaid_cli/__init__.py
-mermaid_cli/background_color_fix.py
 mermaid_cli/cli.py
-mermaid_cli/fixed_markdown_image.py
-mermaid_cli/fixed_playwright_test.py
-mermaid_cli/markdown_fix.py
 mermaid_cli/renderer.py
-mermaid_cli/theme_fix.py
 mermaid_cli/version.py
 mermaid_cli.egg-info/PKG-INFO
 mermaid_cli.egg-info/SOURCES.txt
