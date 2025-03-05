@@ -1,0 +1,8 @@
+/__pycache__/
+/mermaid_cli/__pycache__/
+/dist/
+*.swp
+.DS_Store
+/exapmle/outout/
+/trush/
+/build/

@@ -1,0 +1,2 @@
+[console_scripts]
+mmdc = mermaid_cli.cli:main
