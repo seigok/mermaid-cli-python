@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
-Name: mermaid-cli
-Version: 0.1.0
+Name: mermaid_cli
+Version: 0.1.2
 Summary: Command-line interface and Python library for mermaid diagrams
 Home-page: https://github.com/seigok/mermaid-cli-python
 Author: Mermaid CLI Python Team
