@@ -16,9 +16,11 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, MagicMock, AsyncMock, Mock
 
 import mermaid_cli
+from click.testing import CliRunner
+from mermaid_cli.cli import main as cli_main
 from mermaid_cli.renderer import (
     render_mermaid,
     render_mermaid_file,
@@ -495,7 +497,11 @@ sequenceDiagram
         playwright_configパラメータが正しく使用されることのテスト
         """
         async def run_test():
-            playwright_config = {'headless': False}
+            playwright_config = {
+                'headless': False,
+                'executable_path': '/custom/chromium',
+                'args': ['--no-sandbox', '--disable-gpu']
+            }
             
             # Mock the playwright module to verify the config is passed correctly
             # 設定が正しく渡されることを確認するためにplaywrightモジュールをモック
@@ -503,6 +509,7 @@ sequenceDiagram
                 # Create AsyncMock objects for async methods
                 mock_browser = AsyncMock()
                 mock_page = AsyncMock()
+                mock_page.on = Mock()
                 
                 # Set up the mock chain
                 mock_playwright.return_value.__aenter__.return_value.chromium.launch = AsyncMock(return_value=mock_browser)
@@ -526,8 +533,93 @@ sequenceDiagram
                 except Exception:
                     pass
                 
-                # Verify that launch was called with our headless option
-                mock_playwright.return_value.__aenter__.return_value.chromium.launch.assert_called_once_with(headless=False)
+                # Verify that launch was called with our config options
+                mock_playwright.return_value.__aenter__.return_value.chromium.launch.assert_called_once_with(
+                    headless=False,
+                    executable_path='/custom/chromium',
+                    args=['--no-sandbox', '--disable-gpu']
+                )
+        
+        asyncio.run(run_test())
+
+    def test_render_mermaid_with_icon_packs(self):
+        """
+        Test rendering with icon packs (ensures icon packs are passed into the page)
+        
+        アイコンパックがページに渡されることのテスト
+        """
+        async def run_test():
+            icon_packs = ['@iconify-json/logos', '@iconify-json/simple-icons']
+            
+            async def evaluate_side_effect(script):
+                if 'XMLSerializer' in script:
+                    return '<svg></svg>'
+                if 'return { title, desc }' in script:
+                    return {'title': None, 'desc': None}
+                return None
+            
+            with patch('mermaid_cli.renderer.async_playwright') as mock_playwright:
+                mock_browser = AsyncMock()
+                mock_page = AsyncMock()
+                mock_page.on = Mock()
+                
+                mock_playwright.return_value.__aenter__.return_value.chromium.launch = AsyncMock(return_value=mock_browser)
+                mock_browser.new_page = AsyncMock(return_value=mock_page)
+                mock_page.evaluate = AsyncMock(side_effect=evaluate_side_effect)
+                mock_page.goto = AsyncMock()
+                mock_browser.close = AsyncMock()
+                
+                await render_mermaid(
+                    self.simple_diagram,
+                    output_format='svg',
+                    icon_packs=icon_packs
+                )
+                
+                # Verify icon packs were passed to the page context
+                eval_calls = [call.args[0] for call in mock_page.evaluate.call_args_list]
+                self.assertTrue(
+                    any('window.iconPacks' in script and '@iconify-json/logos' in script for script in eval_calls)
+                )
+        
+        asyncio.run(run_test())
+
+    def test_render_mermaid_pdf_fit_uses_dimensions(self):
+        """
+        Test PDF fit uses computed dimensions
+        
+        PDFのfitが計算された寸法を使うことのテスト
+        """
+        async def run_test():
+            async def evaluate_side_effect(script):
+                if 'return { title, desc }' in script:
+                    return {'title': None, 'desc': None}
+                if 'getBoundingClientRect' in script:
+                    return {'x': 1, 'y': 2, 'width': 100, 'height': 50}
+                return None
+            
+            with patch('mermaid_cli.renderer.async_playwright') as mock_playwright:
+                mock_browser = AsyncMock()
+                mock_page = AsyncMock()
+                mock_page.on = Mock()
+                
+                mock_playwright.return_value.__aenter__.return_value.chromium.launch = AsyncMock(return_value=mock_browser)
+                mock_browser.new_page = AsyncMock(return_value=mock_page)
+                mock_page.evaluate = AsyncMock(side_effect=evaluate_side_effect)
+                mock_page.goto = AsyncMock()
+                mock_page.pdf = AsyncMock(return_value=b'%PDF-1.4')
+                mock_browser.close = AsyncMock()
+                
+                await render_mermaid(
+                    self.simple_diagram,
+                    output_format='pdf',
+                    pdf_fit=True
+                )
+                
+                kwargs = mock_page.pdf.call_args.kwargs
+                self.assertEqual(kwargs['width'], '102px')
+                self.assertEqual(kwargs['height'], '54px')
+                self.assertEqual(kwargs['page_ranges'], '1-1')
+                self.assertTrue(kwargs['print_background'])
         
         asyncio.run(run_test())
 
@@ -926,6 +1018,156 @@ sequenceDiagram
         # Check that the output contains a version number
         # 出力にバージョン番号が含まれていることを確認
         self.assertRegex(result.stdout, r'\d+\.\d+\.\d+')
+
+
+class TestMermaidCLICLIOptions(unittest.TestCase):
+    """
+    Unit-level CLI option tests with render mocked
+    
+    renderをモックしたCLIオプションの単体テスト
+    """
+    
+    def setUp(self):
+        self.simple_diagram = """graph TD
+    A[Start] --> B{Is it?}
+    B -->|Yes| C[OK]
+    C --> D[Rethink]
+    D --> B
+    B ---->|No| E[End]
+"""
+        self.runner = CliRunner()
+    
+    def test_cli_with_playwright_config_file(self):
+        with self.runner.isolated_filesystem():
+            input_path = 'input.mmd'
+            output_path = 'out.svg'
+            config_path = 'playwright.json'
+            
+            with open(input_path, 'w') as f:
+                f.write(self.simple_diagram)
+            
+            with open(config_path, 'w') as f:
+                json.dump({
+                    'headless': False,
+                    'executable_path': '/custom/chromium',
+                    'args': ['--no-sandbox']
+                }, f)
+            
+            with patch('mermaid_cli.cli.render_mermaid_file', new=AsyncMock()) as mock_render:
+                result = self.runner.invoke(
+                    cli_main,
+                    ['-i', input_path, '-o', output_path, '-p', config_path]
+                )
+                
+                self.assertEqual(result.exit_code, 0, result.output)
+                kwargs = mock_render.call_args.kwargs
+                self.assertEqual(kwargs['playwright_config']['headless'], False)
+                self.assertEqual(kwargs['playwright_config']['executable_path'], '/custom/chromium')
+                self.assertEqual(kwargs['playwright_config']['args'], ['--no-sandbox'])
+    
+    def test_cli_with_icon_packs(self):
+        with self.runner.isolated_filesystem():
+            input_path = 'input.mmd'
+            output_path = 'out.svg'
+            
+            with open(input_path, 'w') as f:
+                f.write(self.simple_diagram)
+            
+            with patch('mermaid_cli.cli.render_mermaid_file', new=AsyncMock()) as mock_render:
+                result = self.runner.invoke(
+                    cli_main,
+                    ['-i', input_path, '-o', output_path,
+                     '--icon-packs', '@iconify-json/logos',
+                     '--icon-packs', '@iconify-json/simple-icons']
+                )
+                
+                self.assertEqual(result.exit_code, 0, result.output)
+                kwargs = mock_render.call_args.kwargs
+                self.assertEqual(kwargs['icon_packs'], ['@iconify-json/logos', '@iconify-json/simple-icons'])
+    
+    def test_cli_with_scale_option(self):
+        with self.runner.isolated_filesystem():
+            input_path = 'input.mmd'
+            output_path = 'out.svg'
+            
+            with open(input_path, 'w') as f:
+                f.write(self.simple_diagram)
+            
+            with patch('mermaid_cli.cli.render_mermaid_file', new=AsyncMock()) as mock_render:
+                result = self.runner.invoke(
+                    cli_main,
+                    ['-i', input_path, '-o', output_path, '-s', '2']
+                )
+                
+                self.assertEqual(result.exit_code, 0, result.output)
+                kwargs = mock_render.call_args.kwargs
+                self.assertEqual(kwargs['viewport']['deviceScaleFactor'], 2)
+    
+    def test_cli_with_pdf_fit_option(self):
+        with self.runner.isolated_filesystem():
+            input_path = 'input.mmd'
+            output_path = 'out.pdf'
+            
+            with open(input_path, 'w') as f:
+                f.write(self.simple_diagram)
+            
+            with patch('mermaid_cli.cli.render_mermaid_file', new=AsyncMock()) as mock_render:
+                result = self.runner.invoke(
+                    cli_main,
+                    ['-i', input_path, '-o', output_path, '-e', 'pdf', '-f']
+                )
+                
+                self.assertEqual(result.exit_code, 0, result.output)
+                kwargs = mock_render.call_args.kwargs
+                self.assertTrue(kwargs['pdf_fit'])
+    
+    def test_cli_with_svg_id_option(self):
+        with self.runner.isolated_filesystem():
+            input_path = 'input.mmd'
+            output_path = 'out.svg'
+            
+            with open(input_path, 'w') as f:
+                f.write(self.simple_diagram)
+            
+            with patch('mermaid_cli.cli.render_mermaid_file', new=AsyncMock()) as mock_render:
+                result = self.runner.invoke(
+                    cli_main,
+                    ['-i', input_path, '-o', output_path, '-I', 'custom-id']
+                )
+                
+                self.assertEqual(result.exit_code, 0, result.output)
+                kwargs = mock_render.call_args.kwargs
+                self.assertEqual(kwargs['svg_id'], 'custom-id')
+    
+    def test_cli_with_css_and_config_files(self):
+        with self.runner.isolated_filesystem():
+            input_path = 'input.mmd'
+            output_path = 'out.svg'
+            css_path = 'custom.css'
+            config_path = 'mermaid.json'
+            
+            with open(input_path, 'w') as f:
+                f.write(self.simple_diagram)
+            
+            with open(css_path, 'w') as f:
+                f.write('.node rect { fill: #ff0000; }')
+            
+            with open(config_path, 'w') as f:
+                json.dump({'theme': 'forest'}, f)
+            
+            with patch('mermaid_cli.cli.render_mermaid_file', new=AsyncMock()) as mock_render:
+                result = self.runner.invoke(
+                    cli_main,
+                    ['-i', input_path, '-o', output_path,
+                     '-t', 'dark',
+                     '-C', css_path,
+                     '-c', config_path]
+                )
+                
+                self.assertEqual(result.exit_code, 0, result.output)
+                kwargs = mock_render.call_args.kwargs
+                self.assertEqual(kwargs['css'], '.node rect { fill: #ff0000; }')
+                self.assertEqual(kwargs['mermaid_config']['theme'], 'forest')
 
 
 class TestMermaidCLIWithTestPositive(unittest.TestCase):
