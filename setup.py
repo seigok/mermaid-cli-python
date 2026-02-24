@@ -9,7 +9,11 @@ mermaid-cliパッケージのセットアップスクリプト
 """
 
 from setuptools import setup, find_packages
-from mermaid_cli.version import __version__
+from pathlib import Path
+
+version_ns = {}
+exec(Path("mermaid_cli/version.py").read_text(encoding="utf-8"), version_ns)
+__version__ = version_ns["__version__"]
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
