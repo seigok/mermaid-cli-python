@@ -40,6 +40,33 @@ mmdc -i input.md -o output.md
 mmdc -i input.mmd -o output.png -t dark -b transparent -w 1024 -H 768
 ```
 
+### Playwright Config (Custom Executable)
+
+If you cannot install the bundled Playwright Chromium, you can point to a custom
+binary and pass additional launch args using `--playwright-config-file`:
+
+```json
+{
+  "headless": true,
+  "executable_path": "/path/to/chromium",
+  "args": ["--no-sandbox", "--disable-gpu"]
+}
+```
+
+Python usage with a custom executable:
+
+```python
+await render_mermaid(
+    definition,
+    output_format="svg",
+    playwright_config={
+        "headless": True,
+        "executable_path": "/path/to/chromium",
+        "args": ["--no-sandbox", "--disable-gpu"],
+    },
+)
+```
+
 ### Python Library
 
 ```python
@@ -107,7 +134,7 @@ render_mermaid_file_sync(
 | `-s, --scale [scale]` | Browser scale factor |
 | `-f, --pdf-fit` | Scale PDF to fit chart |
 | `-q, --quiet` | Suppress log output |
-| `-p, --puppeteer-config-file [file]` | JSON configuration file for browser options |
+| `-p, --playwright-config-file [file]` | JSON configuration file for Playwright launch options |
 | `--icon-packs <icons...>` | Icon packs to use (e.g., @iconify-json/logos) |
 
 ## API Reference
@@ -125,7 +152,7 @@ async def render_mermaid(
     pdf_fit: bool = False,
     svg_id: str = None,
     icon_packs: List[str] = None,
-    puppeteer_config: Dict[str, Any] = None,
+    playwright_config: Dict[str, Any] = None,
 ) -> Tuple[Optional[str], Optional[str], bytes]
 ```
 
@@ -141,7 +168,7 @@ Renders a Mermaid diagram definition to the specified format.
 - `pdf_fit`: Scale PDF to fit chart
 - `svg_id`: ID attribute for the SVG element
 - `icon_packs`: List of icon packages to use
-- `puppeteer_config`: Browser configuration dictionary
+- `playwright_config`: Playwright launch options dictionary (e.g., `headless`, `executable_path`, `args`)
 
 **Returns:**
 A tuple of (title, description, data) where data is the binary content of the rendered diagram.
@@ -153,7 +180,7 @@ async def render_mermaid_file(
     input_file: Optional[str],
     output_file: str,
     output_format: Optional[str] = None,
-    puppeteer_config: Dict[str, Any] = None,
+    playwright_config: Dict[str, Any] = None,
     quiet: bool = False,
     **kwargs
 ) -> None
@@ -165,7 +192,7 @@ Renders a Mermaid diagram from a file or processes a Markdown file with embedded
 - `input_file`: Path to input file or None for stdin
 - `output_file`: Path to output file
 - `output_format`: Output format (svg, png, pdf)
-- `puppeteer_config`: Browser configuration dictionary
+- `playwright_config`: Playwright launch options dictionary
 - `quiet`: Suppress log output
 - `**kwargs`: Additional options for render_mermaid
 

@@ -87,8 +87,9 @@ async def render_mermaid(
     # Extract browser options from playwright_config
     # playwright_configからブラウザオプションを抽出
     browser_options = {}
-    if "headless" in playwright_config:
-        browser_options["headless"] = playwright_config["headless"]
+    for key in ("headless", "executable_path", "args"):
+        if key in playwright_config:
+            browser_options[key] = playwright_config[key]
     
     async with async_playwright() as p:
         # Launch browser
