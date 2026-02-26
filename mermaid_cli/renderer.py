@@ -23,6 +23,19 @@ from playwright.async_api import async_playwright
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "index.html"
 
 
+def _encode_non_ascii_tokens(text: str) -> Tuple[str, Dict[str, str]]:
+    """Replace non-ASCII runs with ASCII-safe tokens and keep a reverse map."""
+    token_map: Dict[str, str] = {}
+
+    def repl(match: re.Match) -> str:
+        token = f"JPTOKEN{len(token_map)}END"
+        token_map[token] = match.group(0)
+        return token
+
+    encoded = re.sub(r"[^\x00-\x7F]+", repl, text)
+    return encoded, token_map
+
+
 async def render_mermaid(
     definition: str,
     output_format: str = "svg",
@@ -120,24 +133,37 @@ async def render_mermaid(
             
             # Set variables in the page context
             # ページコンテキストに変数を設定
-            await page.evaluate("window.mermaidDefinition = " + json.dumps(definition))
+            encoded_definition, jp_token_map = _encode_non_ascii_tokens(definition)
+            await page.evaluate("window.mermaidDefinition = " + json.dumps(encoded_definition))
             await page.evaluate("window.mermaidConfig = " + json.dumps(mermaid_config))
             await page.evaluate("window.cssContent = " + json.dumps(css if css else ""))
             await page.evaluate("window.bgColor = " + json.dumps(background_color))
             await page.evaluate("window.svgId = " + json.dumps(svg_id if svg_id else ""))
             await page.evaluate("window.iconPacks = " + json.dumps(icon_packs))
+            await page.evaluate("window.jpTokenMap = " + json.dumps(jp_token_map))
             
             # Execute the rendering
             # 描画を実行
             try:
                 result = await page.evaluate("""
                 async () => {
+                    try {
                     const definition = window.mermaidDefinition;
                     const mermaidConfig = window.mermaidConfig;
                     const css = window.cssContent;
                     const backgroundColor = window.bgColor;
                     const svgId = window.svgId;
                     const iconPacks = window.iconPacks;
+                    const jpTokenMap = window.jpTokenMap || {};
+
+                    const restoreTokens = (value) => {
+                        if (typeof value !== 'string') return value;
+                        let out = value;
+                        for (const [token, original] of Object.entries(jpTokenMap)) {
+                            out = out.split(token).join(original);
+                        }
+                        return out;
+                    };
                     
                     // Wait for fonts to load
                     // フォントの読み込みを待つ
@@ -206,6 +232,24 @@ async def render_mermaid(
                         style.appendChild(document.createTextNode(css));
                         svg.appendChild(style);
                     }
+
+                    // Restore non-ASCII labels from safe tokens
+                    // 安全トークンから非ASCIIラベルを復元
+                    if (Object.keys(jpTokenMap).length > 0) {
+                        const walker = document.createTreeWalker(svg, NodeFilter.SHOW_TEXT);
+                        let node;
+                        while ((node = walker.nextNode())) {
+                            node.nodeValue = restoreTokens(node.nodeValue);
+                        }
+                        for (const el of svg.querySelectorAll('*')) {
+                            for (const attr of Array.from(el.attributes || [])) {
+                                const restored = restoreTokens(attr.value);
+                                if (restored !== attr.value) {
+                                    el.setAttribute(attr.name, restored);
+                                }
+                            }
+                        }
+                    }
                     
                     // Extract metadata
                     // メタデータを抽出
@@ -223,6 +267,9 @@ async def render_mermaid(
                     }
                     
                     return { title, desc };
+                    } catch (err) {
+                        throw new Error((err && err.message) ? err.message : String(err));
+                    }
                 }
                 """)
             except Exception as e:
