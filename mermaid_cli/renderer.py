@@ -23,6 +23,19 @@ from playwright.async_api import async_playwright
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "index.html"
 
 
+def _encode_non_ascii_tokens(text: str) -> Tuple[str, Dict[str, str]]:
+    """Replace non-ASCII runs with ASCII-safe tokens and keep a reverse map."""
+    token_map: Dict[str, str] = {}
+
+    def repl(match: re.Match) -> str:
+        token = f"JPTOKEN{len(token_map)}END"
+        token_map[token] = match.group(0)
+        return token
+
+    encoded = re.sub(r"[^\x00-\x7F]+", repl, text)
+    return encoded, token_map
+
+
 async def render_mermaid(
     definition: str,
     output_format: str = "svg",
@@ -34,6 +47,7 @@ async def render_mermaid(
     svg_id: str = None,
     icon_packs: List[str] = None,
     playwright_config: Dict[str, Any] = None,
+    quiet: bool = False,
 ) -> Tuple[Optional[str], Optional[str], bytes]:
     """
     Render a mermaid diagram.
@@ -104,7 +118,8 @@ async def render_mermaid(
             # Set up console logging - use await to properly handle the coroutine
             # コンソールログの設定 - コルーチンを適切に処理するためにawaitを使用
             async def log_console(msg):
-                print(f"Browser console: {msg.text}")
+                if not quiet:
+                    print(f"Browser console: {msg.text}")
             
             page.on('console', lambda msg: asyncio.create_task(log_console(msg)))
             
@@ -118,110 +133,148 @@ async def render_mermaid(
             
             # Set variables in the page context
             # ページコンテキストに変数を設定
-            await page.evaluate("window.mermaidDefinition = " + json.dumps(definition))
+            encoded_definition, jp_token_map = _encode_non_ascii_tokens(definition)
+            await page.evaluate("window.mermaidDefinition = " + json.dumps(encoded_definition))
             await page.evaluate("window.mermaidConfig = " + json.dumps(mermaid_config))
             await page.evaluate("window.cssContent = " + json.dumps(css if css else ""))
             await page.evaluate("window.bgColor = " + json.dumps(background_color))
             await page.evaluate("window.svgId = " + json.dumps(svg_id if svg_id else ""))
             await page.evaluate("window.iconPacks = " + json.dumps(icon_packs))
+            await page.evaluate("window.jpTokenMap = " + json.dumps(jp_token_map))
             
             # Execute the rendering
             # 描画を実行
-            result = await page.evaluate("""
-            async () => {
-                const definition = window.mermaidDefinition;
-                const mermaidConfig = window.mermaidConfig;
-                const css = window.cssContent;
-                const backgroundColor = window.bgColor;
-                const svgId = window.svgId;
-                const iconPacks = window.iconPacks;
-                
-                // Wait for fonts to load
-                // フォントの読み込みを待つ
-                await Promise.all(Array.from(document.fonts, (font) => font.load()));
-                
-                // Initialize mermaid
-                // mermaidを初期化
-                mermaid.registerExternalDiagrams([window['mermaid-zenuml']]);
-                
-                // Register icon packs if available
-                // アイコンパックが利用可能な場合は登録
-                if (iconPacks && iconPacks.length > 0) {
-                    mermaid.registerIconPacks(
-                        iconPacks.map((icon) => ({
-                            name: icon.split('/')[1],
-                            loader: () =>
-                                fetch(`https://unpkg.com/${icon}/icons.json`)
-                                    .then((res) => res.json())
-                                    .catch(() => console.error(`Failed to fetch icon: ${icon}`))
-                        }))
-                    );
-                }
-                
-                // Initialize mermaid with proper theme handling
-                // 適切なテーマ処理でmermaidを初期化
-                const config = { startOnLoad: false, ...mermaidConfig };
-                
-                // Add theme class to the container if theme is specified
-                // テーマが指定されている場合、コンテナにテーマクラスを追加
-                const container = document.getElementById('container');
-                
-                mermaid.initialize(config);
-                
-                // Render the diagram
-                // 図を描画
-                const { svg: svgText } = await mermaid.render(svgId || 'my-svg', definition, container);
-                container.innerHTML = svgText;
-                
-                // Apply background color and CSS
-                // 背景色とCSSを適用
-                const svg = container.getElementsByTagName('svg')[0];
-                if (svg) {
-                    if (svg.style) {
-                        svg.style.backgroundColor = backgroundColor;
+            try:
+                result = await page.evaluate("""
+                async () => {
+                    try {
+                    const definition = window.mermaidDefinition;
+                    const mermaidConfig = window.mermaidConfig;
+                    const css = window.cssContent;
+                    const backgroundColor = window.bgColor;
+                    const svgId = window.svgId;
+                    const iconPacks = window.iconPacks;
+                    const jpTokenMap = window.jpTokenMap || {};
+
+                    const restoreTokens = (value) => {
+                        if (typeof value !== 'string') return value;
+                        let out = value;
+                        for (const [token, original] of Object.entries(jpTokenMap)) {
+                            out = out.split(token).join(original);
+                        }
+                        return out;
+                    };
+                    
+                    // Wait for fonts to load
+                    // フォントの読み込みを待つ
+                    await Promise.all(Array.from(document.fonts, (font) => font.load()));
+                    
+                    // Initialize mermaid
+                    // mermaidを初期化
+                    mermaid.registerExternalDiagrams([window['mermaid-zenuml']]);
+                    
+                    // Register icon packs if available
+                    // アイコンパックが利用可能な場合は登録
+                    if (iconPacks && iconPacks.length > 0) {
+                        mermaid.registerIconPacks(
+                            iconPacks.map((icon) => ({
+                                name: icon.split('/')[1],
+                                loader: () =>
+                                    fetch(`https://unpkg.com/${icon}/icons.json`)
+                                        .then((res) => res.json())
+                                        .catch(() => console.error(`Failed to fetch icon: ${icon}`))
+                            }))
+                        );
                     }
                     
-                    // Also set the background color as an attribute for better compatibility
-                    // より良い互換性のために背景色を属性としても設定
-                    svg.setAttribute('style', svg.getAttribute('style') + `; background-color: ${backgroundColor};`);
+                    // Initialize mermaid with proper theme handling
+                    // 適切なテーマ処理でmermaidを初期化
+                    const config = { startOnLoad: false, ...mermaidConfig };
                     
-                    // Add explicit background property for test compatibility
-                    if (backgroundColor !== 'transparent' && backgroundColor !== 'white') {
-                        const styleAttr = svg.getAttribute('style') || '';
-                        svg.setAttribute('style', styleAttr + `; background: ${backgroundColor};`);
+                    // Add theme class to the container if theme is specified
+                    // テーマが指定されている場合、コンテナにテーマクラスを追加
+                    const container = document.getElementById('container');
+                    
+                    mermaid.initialize(config);
+                    
+                    // Render the diagram
+                    // 図を描画
+                    const { svg: svgText } = await mermaid.render(svgId || 'my-svg', definition, container);
+                    container.innerHTML = svgText;
+                    
+                    // Apply background color and CSS
+                    // 背景色とCSSを適用
+                    const svg = container.getElementsByTagName('svg')[0];
+                    if (svg) {
+                        if (svg.style) {
+                            svg.style.backgroundColor = backgroundColor;
+                        }
+                        
+                        // Also set the background color as an attribute for better compatibility
+                        // より良い互換性のために背景色を属性としても設定
+                        svg.setAttribute('style', svg.getAttribute('style') + `; background-color: ${backgroundColor};`);
+                        
+                        // Add explicit background property for test compatibility
+                        if (backgroundColor !== 'transparent' && backgroundColor !== 'white') {
+                            const styleAttr = svg.getAttribute('style') || '';
+                            svg.setAttribute('style', styleAttr + `; background: ${backgroundColor};`);
+                        }
+                        
+                        // Add theme class to SVG if specified in config
+                        // 設定でテーマが指定されている場合、SVGにテーマクラスを追加
+                        if (config.theme) {
+                            svg.classList.add(`theme-${config.theme}`);
+                        }
                     }
                     
-                    // Add theme class to SVG if specified in config
-                    // 設定でテーマが指定されている場合、SVGにテーマクラスを追加
-                    if (config.theme) {
-                        svg.classList.add(`theme-${config.theme}`);
+                    if (css) {
+                        const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+                        style.appendChild(document.createTextNode(css));
+                        svg.appendChild(style);
+                    }
+
+                    // Restore non-ASCII labels from safe tokens
+                    // 安全トークンから非ASCIIラベルを復元
+                    if (Object.keys(jpTokenMap).length > 0) {
+                        const walker = document.createTreeWalker(svg, NodeFilter.SHOW_TEXT);
+                        let node;
+                        while ((node = walker.nextNode())) {
+                            node.nodeValue = restoreTokens(node.nodeValue);
+                        }
+                        for (const el of svg.querySelectorAll('*')) {
+                            for (const attr of Array.from(el.attributes || [])) {
+                                const restored = restoreTokens(attr.value);
+                                if (restored !== attr.value) {
+                                    el.setAttribute(attr.name, restored);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Extract metadata
+                    // メタデータを抽出
+                    let title = null;
+                    if (svg.firstChild && svg.firstChild.tagName === 'title') {
+                        title = svg.firstChild.textContent;
+                    }
+                    
+                    let desc = null;
+                    for (const svgNode of svg.children) {
+                        if (svgNode.tagName === 'desc') {
+                            desc = svgNode.textContent;
+                            break;
+                        }
+                    }
+                    
+                    return { title, desc };
+                    } catch (err) {
+                        throw new Error((err && err.message) ? err.message : String(err));
                     }
                 }
-                
-                if (css) {
-                    const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-                    style.appendChild(document.createTextNode(css));
-                    svg.appendChild(style);
-                }
-                
-                // Extract metadata
-                // メタデータを抽出
-                let title = null;
-                if (svg.firstChild && svg.firstChild.tagName === 'title') {
-                    title = svg.firstChild.textContent;
-                }
-                
-                let desc = null;
-                for (const svgNode of svg.children) {
-                    if (svgNode.tagName === 'desc') {
-                        desc = svgNode.textContent;
-                        break;
-                    }
-                }
-                
-                return { title, desc };
-            }
-            """)
+                """)
+            except Exception as e:
+                preview = " ".join(definition.strip().splitlines()[:4])[:220]
+                raise RuntimeError(f"Mermaid render failed: {e}. Definition preview: {preview}") from e
             
             title = result.get('title')
             desc = result.get('desc')
@@ -476,6 +529,7 @@ async def render_mermaid_file(
                     mermaid_definition,
                     output_format,
                     playwright_config=playwright_config,
+                    quiet=quiet,
                     **kwargs
                 )
                 
@@ -524,6 +578,7 @@ async def render_mermaid_file(
             definition,
             output_format,
             playwright_config=playwright_config,
+            quiet=quiet,
             **kwargs
         )
         

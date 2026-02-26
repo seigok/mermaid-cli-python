@@ -153,6 +153,7 @@ async def render_mermaid(
     svg_id: str = None,
     icon_packs: List[str] = None,
     playwright_config: Dict[str, Any] = None,
+    quiet: bool = False,
 ) -> Tuple[Optional[str], Optional[str], bytes]
 ```
 
@@ -169,6 +170,7 @@ Renders a Mermaid diagram definition to the specified format.
 - `svg_id`: ID attribute for the SVG element
 - `icon_packs`: List of icon packages to use
 - `playwright_config`: Playwright launch options dictionary (e.g., `headless`, `executable_path`, `args`)
+- `quiet`: Suppress browser console logs during rendering
 
 **Returns:**
 A tuple of (title, description, data) where data is the binary content of the rendered diagram.
@@ -208,6 +210,16 @@ def render_mermaid_file_sync(
 ```
 
 Synchronous wrapper for render_mermaid_file.
+
+## Verify all diagram outputs
+
+Use the helper script to run syntax coverage tests and generate SVG/PNG/PDF outputs for all diagram samples:
+
+```bash
+./scripts/verify-all-diagrams.sh
+```
+
+Generated files are written to `artifacts/all-diagrams/`.
 
 ## Examples
 
