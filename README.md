@@ -211,6 +211,16 @@ def render_mermaid_file_sync(
 
 Synchronous wrapper for render_mermaid_file.
 
+## Verify all diagram outputs
+
+Use the helper script to run syntax coverage tests and generate SVG/PNG/PDF outputs for all diagram samples:
+
+```bash
+./scripts/verify-all-diagrams.sh
+```
+
+Generated files are written to `artifacts/all-diagrams/`.
+
 ## Examples
 
 ### Basic Flowchart
