@@ -131,10 +131,13 @@ DIAGRAMS = {
     Task B
 """,
     "treemap": """treemap-beta
-  title Disk Usage
-  "root" : 100
-  "apps" : 40
-  "data" : 60
+  "Disk Usage"
+    "Applications"
+      "Editor": 18
+      "Browser": 22
+    "Data"
+      "Photos": 35
+      "Docs": 25
 """,
     "radar": """radar-beta
   axis a,b,c
